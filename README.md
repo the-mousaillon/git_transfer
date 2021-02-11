@@ -11,3 +11,4 @@ Execute the cli for the package parent directory:
  ```
 
 Then, the source repo commit history will be copied into the specified folder in the target repository. You also have to specify the target repository's branch to whom the commit history will be transfered.
+
