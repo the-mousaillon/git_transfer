@@ -1,5 +1,6 @@
 import tarfile
 from os import makedirs, unlink, environ
+from os.path import join, exists
 from shutil import rmtree, copytree
 from git_transfer import COMMIT_EXPORT_PATH
 from git.repo import Repo
@@ -9,6 +10,26 @@ def get_repo_name(repo: Repo):
     repo_url = repo.remotes[0].config_reader.get("url")
     repo_name = repo_url.rstrip(".git").split("/")[-1]
     return repo_name
+
+
+def extract_gitinore(source_repo_path: str):
+    ignore_to_add = ""
+    gitignore_path = join(source_repo_path, ".gitignore")
+    write = False
+    if not exists(gitignore_path):
+        print("[INFO]: no gitinore found in source repo")
+        return None
+
+    print("[INFO]: gitinore found in source repo")
+    with open(gitignore_path, "r") as gitignore_file:
+        for line in gitignore_file:
+            if "GIT_TRANSFER" in line:
+                write = True
+            
+            if write:
+                ignore_to_add += line
+        
+    return ignore_to_add
 
 class RepoExporter:
     def __init__(self, source_repo_path, source_repo_branch, target_repo_path, target_repo_relative_directory, target_repo_commit_branch):
@@ -32,6 +53,9 @@ class RepoExporter:
         self.target_repo_archive_path_root = "{}/{}".format(COMMIT_EXPORT_PATH, self.source_repo_name)
         self.target_repo_archive_path_tar = "{}/{}".format(self.target_repo_archive_path_root, "commit_archive.tar")
         self.target_repo_directory = "{}/{}".format(self.target_repo_path, target_repo_relative_directory)
+
+        # ingores to add at each commit
+        self.ignores_to_add = extract_gitinore(self.source_repo_path)
     
         # initialize commit infos
         self._exact_commits()
@@ -56,7 +80,7 @@ class RepoExporter:
         for commit in self.source_repo.iter_commits():
             commit_id = commit.hexsha
             commit_infos = {
-                "author": commit.author,
+               # "author": commit.author,
                 "message": commit.message,
                 "date": datetime.fromtimestamp(commit.authored_date).isoformat()
             }
@@ -69,10 +93,16 @@ class RepoExporter:
         # Returning on the defaut HEAD
         self.source_repo.git.checkout(self.source_head)
 
+    def _add_ignores(self):
+        gitignore_path = join(self.source_repo_path, ".gitignore")
+        if self.ignores_to_add is not None:
+            with open(gitignore_path, "a") as gitignore_file:
+                gitignore_file.write(self.ignores_to_add)
+
     def extract_source_files(self, commit_id: str):
         # clean the export tmp directory
         self._prepare_export()
-        self.source_repo.git.checkout(commit_id)
+        self.source_repo.git.checkout(commit_id, force=True)
 
         # get all the files of the commit
         with open(self.target_repo_archive_path_tar, "wb+") as export_archive_io:
@@ -85,13 +115,12 @@ class RepoExporter:
         
     def move_source_to_target(self):
         # copy the commit source files to the target repo
-        copytree(self.target_repo_archive_path_root, self.target_repo_directory) 
-
+        copytree(self.target_repo_archive_path_root, self.target_repo_directory)
+        
+        # Add problematic files to gitignore
 
     def commit_to_target(self, commit_infos: dict):
-        # commiting the changes in the taget repo
-        #self._instantiate_target_repo()
-
+        # tries to checkout to branch, creates the branch if it doesn't exists
         try:
             self.target_repo.git.checkout(b=self.target_repo_commit_branch)
         
